@@ -10,6 +10,7 @@ class Config:
     # Configure logging for configuration loading
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
+    CONFIG_PATH = os.environ.get("MASTOBOT_CONFIG", "config.yaml")
 
     def load_yaml(file_path: str) -> Dict[str, Any]:
         """Load configuration from a YAML file.
@@ -40,11 +41,13 @@ class Config:
             return {}
 
     # Load the configuration
-    config = load_yaml("config.yaml")
+    config = load_yaml(CONFIG_PATH)
 
     # MongoDB Configuration
     MONGO_URI = config.get("MONGO_URI", "")
     MONGO_DBNAME = config.get("MONGO_DBNAME", "default_db")
+    STATE_SOURCE_MONGO_URI = config.get("STATE_SOURCE_MONGO_URI", MONGO_URI)
+    STATE_SOURCE_DBNAME = config.get("STATE_SOURCE_DBNAME", MONGO_DBNAME)
 
     # Mastodon configuration
     mastodon_config = config.get("MASTODON", {})
@@ -67,9 +70,10 @@ class Config:
             cls.logger.warning("MONGO_URI is not set.")
         if not cls.MASTODON_ACCESS_TOKEN or not cls.MASTODON_BASE_URL:
             cls.logger.warning("Mastodon credentials are not set.")
+        if not cls.MONGO_DBNAME:
+            cls.logger.warning("MONGO_DBNAME is not set.")
 
         
 
 # Initialize the configuration
 Config.init_config()
-

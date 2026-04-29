@@ -2,6 +2,30 @@
 
 This repository contains the code for the Mielenosoitukset.fi Mastodon bot.
 
+## Cutover From The Main Repo
+
+The old in-app Mastobot used the main application MongoDB and stored state in:
+
+- `posted_events`
+- `mastobot_meta`
+- `mastobot_subscriptions`
+
+To avoid duplicate posts during cutover, the safest default is to keep using the
+same MongoDB database in this standalone repo. That lets Mastobot see the exact
+same historical state it used before the split.
+
+If you must move Mastobot into a separate database later, run:
+
+```bash
+python3 scripts/migrate_state.py
+```
+
+That script copies the three state collections with idempotent `_id`-based
+upserts, so rerunning it does not create duplicates.
+
+If the standalone repo is pointed at the same source DB already, the script will
+detect that and simply report that the existing state will be reused directly.
+
 ## Setup
 
 ### 1. Copy the example configuration file
@@ -15,6 +39,11 @@ cp example.config.yaml config.yaml
 ```bash
 nano config.yaml
 ```
+
+Important:
+- `MONGO_URI` / `MONGO_DBNAME` should point to the current production bot state
+  before you delete the old main-repo copy.
+- The systemd service reads its config from `MASTOBOT_CONFIG=/etc/mastobot/config.yaml`.
 
 ### 3. Create a dedicated system user
 
@@ -59,6 +88,20 @@ sudo chown root:root /etc/systemd/system/mastobot.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now mastobot
+```
+
+### 7.5. Optional migration / preflight
+
+If you are reusing the same DB as the old bot, verify that first:
+
+```bash
+python3 scripts/migrate_state.py --verify-only
+```
+
+If you are moving to a different database, copy the state before first start:
+
+```bash
+python3 scripts/migrate_state.py
 ```
 
 ### 8. View logs

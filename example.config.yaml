@@ -1,5 +1,7 @@
 MONGO_URI: "mongodb://localhost:27017"
-MONGO_DBNAME: "mastobot"
+MONGO_DBNAME: "mielenosoitukset"
+STATE_SOURCE_MONGO_URI: "mongodb://localhost:27017"
+STATE_SOURCE_DBNAME: "mielenosoitukset"
 
 MOSOFI:
   BASE_URL: https://mielenosoitukset.fi/ 
