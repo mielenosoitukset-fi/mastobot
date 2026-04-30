@@ -348,12 +348,8 @@ def set_meta(key: str, value: str) -> None:
 
 
 def parse_event_datetime(event: dict) -> Optional[datetime.datetime]:
-    date_str = event.get("date")
-    if not date_str:
-        return None
-    try:
-        date_obj = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-    except ValueError:
+    date_obj = parse_event_date(event.get("date"))
+    if not date_obj:
         return None
     start_time = (event.get("start_time") or "12:00").strip()
     for fmt in ("%H:%M", "%H:%M:%S"):
@@ -439,13 +435,11 @@ def fetch_all_events(api_url: str, session: requests.Session, max_retries: int =
     return results
 
 
-def within_days(event_dt: Optional[datetime.datetime], days: int) -> bool:
+def upcoming_within_days(event_dt: Optional[datetime.datetime], days: int, now: datetime.datetime) -> bool:
     if not event_dt:
         return False
-    today = datetime.date.today()
-    event_date = event_dt.date()
-    delta = (event_date - today).days
-    return 0 <= delta <= days
+    delta = (event_dt.date() - now.date()).days
+    return 0 <= delta <= days and now < event_dt
 
 
 def build_mastodon_client(access_token: Optional[str], base_url: str) -> Optional[Mastodon]:
@@ -495,6 +489,7 @@ def process_events(
     max_days: int,
 ) -> int:
     posted_count = 0
+    now = datetime.datetime.now()
     for event in events:
         slug_or_id = event.get("_id") or event.get("id")
         slug_value = event.get("slug")
@@ -518,8 +513,8 @@ def process_events(
         time_str = format_time_window(event)
         city_line = format_city_line(event.get("city"))
 
-        event_dt = parse_event_date(event.get("date")) if event.get("date") else None
-        if not within_days(event_dt, max_days):
+        event_dt = parse_event_datetime(event)
+        if not upcoming_within_days(event_dt, max_days, now):
             logging.debug("Skipping outside window: %s (date=%s)", title, date_str)
             continue
 
