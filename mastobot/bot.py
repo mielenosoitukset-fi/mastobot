@@ -38,12 +38,11 @@ from mastodon import Mastodon, MastodonError
 from bson import ObjectId
 
 from config import Config
-
-from DatabaseManager import DatabaseManager
+from mastobot.database import DatabaseManager
 
 config = Config()
 
-mongo = DatabaseManager(config).get_instance().get_db()
+mongo = DatabaseManager(config.MONGO_URI, config.MONGO_DBNAME).get_db()
 
 try:
     from dateutil import parser as dateutil_parser  # type: ignore
@@ -953,6 +952,5 @@ def main(argv: Optional[List[str]] = None) -> int:
     except KeyboardInterrupt:
         logging.info("Interrupted by user")
     return exit_code
-
 
 

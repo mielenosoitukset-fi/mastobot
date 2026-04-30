@@ -1,3 +1,6 @@
-git+https://github.com/botsarefuture/DatabaseManager.git
 feedparser==6.0.12
 Mastodon.py==2.1.4
+PyYAML>=6.0
+pymongo>=4.6
+python-dateutil>=2.9
+requests>=2.31
