@@ -69,5 +69,9 @@ jobs:
           fi
           git config --global --get-all safe.directory 2>/dev/null | grep -Fxq /opt/mastobot/current || git config --global --add safe.directory /opt/mastobot/current
           git checkout -B main
+          # Restart even when the tree is already up to date (e.g. workflow
+          # re-runs after a failed run already applied the update), so the
+          # service is guaranteed to run the deployed code.
+          export CHECK_FOR_UPDATE_RESTART_ALWAYS=1
           bash mastobot/check_for_update.sh
           REMOTE
