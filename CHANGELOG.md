@@ -15,7 +15,9 @@ All notable changes to this project are documented here. Format loosely based on
   added coverage for the embedded subscription instructions.
 - **Auto-deploy on merge to `main`**: Added a GitHub Actions deploy workflow that runs the unit
   tests and then updates the production server via SSH (pulling `main`, installing dependencies and
-  restarting the `mastobot` service). See the README for the required secrets and server setup.
+  restarting the `mastobot` service). Deploys restart the service even when the checkout is already
+  up to date, so workflow re-runs after a partially failed deploy cannot leave stale code running.
+  See the README for the required secrets and server setup.
 - **`check_for_update.sh` hardening**: The update script now works when run as root against a repo
   owned by the service account (adds the `safe.directory` git exception itself) and installs Python
   dependencies into the `/opt/mastobot/venv` used by the deployed unit (falling back to

@@ -4,8 +4,40 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVICE_NAME="mastobot"
+# Set CHECK_FOR_UPDATE_RESTART_ALWAYS=1 to restart the service even when the
+# repo is already on the newest commit (used by CI deploys so the service is
+# guaranteed to run the deployed code, also after workflow re-runs).
+RESTART_ALWAYS="${CHECK_FOR_UPDATE_RESTART_ALWAYS:-}"
 
 cd "$APP_DIR"
+
+restart_service() {
+    echo "Restarting service..."
+    systemctl restart "$SERVICE_NAME"
+    echo "Update complete."
+}
+
+install_dependencies() {
+    if [ ! -f requirements.txt ]; then
+        return 0
+    fi
+    echo "Installing Python dependencies..."
+    # Prefer the service venv when present (matches the deployed systemd unit)
+    PIP_PYTHON="/usr/bin/python3"
+    VENV_DIR=""
+    if [ -x "$APP_DIR/../venv/bin/python" ]; then
+        PIP_PYTHON="$APP_DIR/../venv/bin/python"
+        VENV_DIR="$(dirname "$PIP_PYTHON")/.."
+    fi
+    "$PIP_PYTHON" -m pip install -r requirements.txt
+    # Keep the venv owned by the service user when installed as root
+    if [ "$(id -u)" = "0" ] && [ -n "$VENV_DIR" ] && [ -d "$VENV_DIR" ]; then
+        venv_owner="$(stat -c %U "$VENV_DIR" 2>/dev/null || true)"
+        if [ -n "$venv_owner" ]; then
+            chown -R "$venv_owner" "$VENV_DIR"
+        fi
+    fi
+}
 
 # Allow git operations when the repo is owned by another user (e.g. the
 # service account) but this script is run as root from CI/deploy.
@@ -43,29 +75,12 @@ if [ "$current_head" != "$newest_head" ]; then
     git reset --hard "origin/$branch"
     git clean -fd
 
-    if [ -f requirements.txt ]; then
-        echo "Installing Python dependencies..."
-        # Prefer the service venv when present (matches the deployed systemd unit)
-        PIP_PYTHON="/usr/bin/python3"
-        VENV_DIR=""
-        if [ -x "$APP_DIR/../venv/bin/python" ]; then
-            PIP_PYTHON="$APP_DIR/../venv/bin/python"
-            VENV_DIR="$(dirname "$PIP_PYTHON")/.."
-        fi
-        "$PIP_PYTHON" -m pip install -r requirements.txt
-        # Keep the venv owned by the service user when installed as root
-        if [ "$(id -u)" = "0" ] && [ -n "$VENV_DIR" ] && [ -d "$VENV_DIR" ]; then
-            venv_owner="$(stat -c %U "$VENV_DIR" 2>/dev/null || true)"
-            if [ -n "$venv_owner" ]; then
-                chown -R "$venv_owner" "$VENV_DIR"
-            fi
-        fi
-    fi
-
-    echo "Restarting service..."
-    systemctl restart "$SERVICE_NAME"
-
-    echo "Update complete."
+    install_dependencies
+    restart_service
+elif [ "$RESTART_ALWAYS" = "1" ]; then
+    echo "Already up to date — restarting service anyway."
+    install_dependencies
+    restart_service
 else
     echo "Already up to date."
 fi

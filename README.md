@@ -117,7 +117,9 @@ Every merge to `main` (and manual `workflow_dispatch` runs) deploys to productio
 1. The `test` job runs the unit tests (`python -m unittest discover -s tests`).
 2. The `deploy` job SSHes into the production server and runs
    `mastobot/check_for_update.sh`, which pulls the new `main`, installs any
-   changed Python dependencies and restarts the `mastobot` service.
+   changed Python dependencies and restarts the `mastobot` service. The service
+   is restarted even when the checkout is already up to date, so re-running a
+   workflow after a partially failed deploy still applies the update.
 
 ### Required GitHub secrets
 
