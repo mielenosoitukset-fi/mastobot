@@ -68,11 +68,13 @@ mastobot_meta_collection = mongo["mastobot_meta"]
 
 SUBSCRIBE_COMMANDS: Tuple[str, ...] = ("!muistutaminua", "!subscribeme")
 
-INSTRUCTIONS_COMMENT = (
-    "💡 Haluatko muistutuksen mielenosoituksesta? Vastaa tähän ketjuun kirjoittamalla "
-    "`!muistutaminua` (tai `!subscribeme`) niin saat Mastodon-viestit 7 päivää ja 24 tuntia "
-    "ennen tapahtumaa sekä tiedon peruutuksista."
+SUBSCRIBE_INSTRUCTIONS = (
+    "💡 Tilaa muistutukset vastaamalla tähän postaukseen `!muistutaminua` "
+    "(tai `!subscribeme`). Saat viestit 7 päivää ja 24 tuntia ennen tapahtumaa "
+    "sekä tiedon peruutuksista."
 )
+
+MAX_STATUS_LENGTH = 500
 
 
 @dataclass
@@ -166,20 +168,24 @@ def append_posted(
         state.cancellations.add(demo_id)
 
 
-def post_instructions_comment(
-    client: Optional[Mastodon],
-    base_status_id: Optional[str],
-    dry_run: bool,
-) -> None:
-    """Reply under the published status with instructions for subscription commands."""
-    if not base_status_id:
-        return
-    post_to_mastodon(
-        client,
-        INSTRUCTIONS_COMMENT,
-        dry_run=dry_run,
-        in_reply_to_id=base_status_id,
-    )
+def append_subscribe_instructions(status: str) -> str:
+    """Attach the subscription instructions to an event status.
+
+    The instructions are embedded in the event post itself instead of being
+    published as a separate toot, so followers do not get extra standalone
+    instruction posts in their timeline. If the combined text would exceed the
+    status length limit, the instructions are dropped (and the event post kept)
+    so the event publication never fails.
+    """
+    combined = f"{status}\n\n{SUBSCRIBE_INSTRUCTIONS}"
+    if len(combined) > MAX_STATUS_LENGTH:
+        logging.warning(
+            "Skipping subscription instructions on long status (%d chars > %d)",
+            len(combined),
+            MAX_STATUS_LENGTH,
+        )
+        return status
+    return combined
 
 
 def build_event_link(demo_id: str) -> str:
@@ -521,6 +527,7 @@ def process_events(
 
         lines = [title, f"{date_str} {time_str}".strip(), city_line, link, tag_str]
         status = "\n".join([line for line in lines if line])
+        status = append_subscribe_instructions(status)
 
         success, status_payload = post_to_mastodon(client, status, dry_run=dry_run)
         if success:
@@ -534,7 +541,6 @@ def process_events(
                 slug=slug_value,
                 link_aliases=link_variants,
             )
-            post_instructions_comment(client, status_id, dry_run)
             posted_count += 1
             time.sleep(1)
     logging.info("Posted %d new events", posted_count)
@@ -596,7 +602,6 @@ def handle_cancellations(
                 slug=slug_value,
                 link_aliases=link_variants,
             )
-            post_instructions_comment(client, status_id, dry_run)
             cancelled_posts += 1
             time.sleep(1)
 

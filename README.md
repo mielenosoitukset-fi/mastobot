@@ -110,6 +110,34 @@ python3 scripts/migrate_state.py
 journalctl -u mastobot -f
 ```
 
+## Automatic deployment (GitHub Actions)
+
+Every merge to `main` (and manual `workflow_dispatch` runs) deploys to production:
+
+1. The `test` job runs the unit tests (`python -m unittest discover -s tests`).
+2. The `deploy` job SSHes into the production server and runs
+   `mastobot/check_for_update.sh`, which pulls the new `main`, installs any
+   changed Python dependencies and restarts the `mastobot` service.
+
+### Required GitHub secrets
+
+Configure these in the repository settings (Settings → Secrets and variables →
+Actions):
+
+- `MASTOBOT_DEPLOY_HOST` – production server hostname/IP.
+- `MASTOBOT_DEPLOY_USER` – SSH user for the deploy (defaults to `root` if unset).
+- `MASTOBOT_DEPLOY_KEY` – private SSH key accepted on the server for that user.
+
+### Server prerequisites
+
+- `/opt/mastobot/current` is a git clone of this repository with `origin`
+  pointing at `github.com/mielenosoitukset-fi/mastobot`, checked out on `main`.
+- The deploy SSH key is in the deploy user's `~/.ssh/authorized_keys`.
+- The deploy user must be able to write to `/opt/mastobot/current`, install the
+  Python requirements and restart the `mastobot` service (running the deploy as
+  `root` satisfies all of these). The `safe.directory` git exception for
+  `/opt/mastobot/current` is added automatically by `check_for_update.sh`.
+
 ## Directory layout
 
 ```
