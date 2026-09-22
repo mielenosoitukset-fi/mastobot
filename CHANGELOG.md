@@ -13,3 +13,10 @@ All notable changes to this project are documented here. Format loosely based on
   the instructions are skipped rather than failing the announcement.
 - **Tests**: Fixed the broken `DatabaseManager` mock target in the test suite so tests can run, and
   added coverage for the embedded subscription instructions.
+- **Auto-deploy on merge to `main`**: Added a GitHub Actions deploy workflow that runs the unit
+  tests and then updates the production server via SSH (pulling `main`, installing dependencies and
+  restarting the `mastobot` service). See the README for the required secrets and server setup.
+- **`check_for_update.sh` hardening**: The update script now works when run as root against a repo
+  owned by the service account (adds the `safe.directory` git exception itself) and installs Python
+  dependencies into the `/opt/mastobot/venv` used by the deployed unit (falling back to
+  `/usr/bin/python3` when no venv exists), keeping the venv owned by the service user.

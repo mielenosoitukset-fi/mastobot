@@ -1,0 +1,73 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  deploy:
+    name: Deploy to production
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.MASTOBOT_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.MASTOBOT_DEPLOY_USER || 'root' }}
+    steps:
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.MASTOBOT_DEPLOY_KEY }}
+
+      - name: Trust deploy host
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "MASTOBOT_DEPLOY_HOST secret is not set; cannot deploy." >&2
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Update production server
+        run: |
+          set -euo pipefail
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/mastobot/current
+          if [ ! -d .git ]; then
+            echo "ERROR: /opt/mastobot/current is not a git repository" >&2
+            exit 1
+          fi
+          git config --global --get-all safe.directory 2>/dev/null | grep -Fxq /opt/mastobot/current || git config --global --add safe.directory /opt/mastobot/current
+          git checkout -B main
+          bash mastobot/check_for_update.sh
+          REMOTE
