@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Format loosely based on
 
 ## UNRELEASED
 
+- **Stop and alert when the database is unusable**: before every posting round the bot checks that
+  it can read and write its state database. If that fails three times in a row, at startup, or when
+  a posted status cannot be saved, it posts nothing and exits with status 2. The systemd unit does
+  not restart it on that status and starts `mastobot-failed.service`, which sends a Bark push (e-mail
+  fallback) through the server's shared alert script.
 - **Fix repeated posts when saving post state fails** (incident 2026-11-23): the bot now records a
   posted status in memory before writing it to MongoDB, so a failed write can no longer make it
   post the same event again on the next loop. A failed write also pauses all new posting until the

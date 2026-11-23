@@ -171,5 +171,52 @@ class RedactMongoUriTestCase(unittest.TestCase):
         self.assertEqual(redact_mongo_uri("mongodb://127.0.0.1:27017/db"), "mongodb://127.0.0.1:27017/db")
 
 
+class StateDbUnusableTestCase(unittest.TestCase):
+    """When the state database is unusable the bot posts nothing and exits 2 (systemd alerts)."""
+
+    def setUp(self):
+        bot._posting_paused_reason = None
+
+    def tearDown(self):
+        bot._posting_paused_reason = None
+
+    def _run_main(self, check_side_effect, argv=None, process_side_effect=None):
+        with patch.object(bot, "check_state_db", side_effect=check_side_effect) as mock_check, \
+             patch.object(bot, "load_posted_state", return_value=PostedState()), \
+             patch.object(bot, "build_mastodon_client", return_value=None), \
+             patch.object(bot, "fetch_all_events", return_value=[]), \
+             patch.object(bot, "process_events", side_effect=process_side_effect) as mock_process, \
+             patch.object(bot, "handle_cancellations", return_value=0), \
+             patch.object(bot.time, "sleep", return_value=None):
+            code = bot.main(argv or [])
+        return code, mock_check, mock_process
+
+    def test__main__exits_at_startup_when_db_unusable(self):
+        code, _, mock_process = self._run_main(Exception("down"))
+        self.assertEqual(code, bot.EXIT_STATE_DB_UNUSABLE)
+        mock_process.assert_not_called()
+
+    def test__main__stops_after_repeated_failed_checks_without_posting(self):
+        # startup check passes, then every loop check fails
+        effects = [None] + [Exception("down")] * bot.STATE_DB_MAX_FAILED_CHECKS
+        code, mock_check, mock_process = self._run_main(effects)
+        self.assertEqual(code, bot.EXIT_STATE_DB_UNUSABLE)
+        self.assertEqual(mock_check.call_count, 1 + bot.STATE_DB_MAX_FAILED_CHECKS)
+        mock_process.assert_not_called()
+
+    def test__main__recovers_from_a_single_failed_check(self):
+        effects = [None, Exception("blip"), None, None]
+        code, _, mock_process = self._run_main(effects, argv=[], process_side_effect=[0, KeyboardInterrupt()])
+        self.assertEqual(code, 0)
+        self.assertEqual(mock_process.call_count, 2)
+
+    def test__main__exits_when_a_posted_status_cannot_be_saved(self):
+        code, _, mock_process = self._run_main(
+            [None, None, None], process_side_effect=bot.StateWriteError("insert denied"),
+        )
+        self.assertEqual(code, bot.EXIT_STATE_DB_UNUSABLE)
+        mock_process.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
