@@ -127,6 +127,20 @@ def setup_logging(level: str) -> None:
 
 
 
+class StateWriteError(RuntimeError):
+    """Raised when a posted status could not be saved to MongoDB."""
+
+
+# Set once a posted status could not be saved. While it is set the bot posts
+# nothing new: the only record of what it already posted would be this
+# process's memory, and a restart would repeat the posts.
+_posting_paused_reason: Optional[str] = None
+
+
+def posting_paused() -> Optional[str]:
+    return _posting_paused_reason
+
+
 def append_posted(
     link: str,
     state: PostedState,
@@ -137,6 +151,13 @@ def append_posted(
     slug: Optional[str] = None,
     link_aliases: Optional[List[str]] = None,
 ) -> None:
+    """Record a status that is already on Mastodon.
+
+    Memory is updated first, so a failed database write can never make this
+    process post the same status again. A failed write then pauses posting and
+    raises StateWriteError.
+    """
+    global _posting_paused_reason
     doc = {
         "link": link,
         "post_type": post_type,
@@ -150,7 +171,6 @@ def append_posted(
         doc["slug"] = slug
     if link_aliases:
         doc["link_aliases"] = link_aliases
-    mongo.posted_events.insert_one(doc)
 
     state.links.add(link)
     if link_aliases:
@@ -166,6 +186,14 @@ def append_posted(
             state.status_to_demo[str(status_id)] = demo_id
     elif demo_id and post_type == "cancellation":
         state.cancellations.add(demo_id)
+
+    try:
+        mongo.posted_events.insert_one(doc)
+    except Exception as exc:
+        _posting_paused_reason = (
+            f"could not save posted {post_type} {link} (status {status_id}): {exc}"
+        )
+        raise StateWriteError(_posting_paused_reason) from exc
 
 
 def append_subscribe_instructions(status: str) -> str:
@@ -939,8 +967,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 events = fetch_all_events(api_url, session)
                 events_by_id = index_events_by_id(events)
                 dry_mode = args.dry_run or client is None
-                process_events(events, posted_state, client, dry_mode, DEFAULT_MAX_DAYS)
-                handle_cancellations(events, posted_state, client, dry_mode)
+                paused = posting_paused()
+                if paused:
+                    logging.error(
+                        "Posting paused: %s. Fix the database access and restart mastobot.",
+                        paused,
+                    )
+                else:
+                    process_events(events, posted_state, client, dry_mode, DEFAULT_MAX_DAYS)
+                    handle_cancellations(events, posted_state, client, dry_mode)
                 
                 if client and not args.dry_run:
                     process_mentions(client, posted_state, events_by_id, dry_mode)
@@ -948,6 +983,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 else:
                     logging.debug("Skipping mention/subscription processing (dry-run or no client)")
                     
+            except StateWriteError as e:
+                logging.critical("Posting paused after a failed state write: %s", e)
             except Exception as e:
                 logging.exception("Error while fetching or processing events: %s", e)
             if args.once:

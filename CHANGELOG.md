@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Format loosely based on
 
 ## UNRELEASED
 
+- **Fix repeated posts when saving post state fails** (incident 2026-11-23): the bot now records a
+  posted status in memory before writing it to MongoDB, so a failed write can no longer make it
+  post the same event again on the next loop. A failed write also pauses all new posting until the
+  database access is fixed and the bot is restarted, and is logged as critical.
+- **Security**: the MongoDB password is no longer written to the log when the bot connects.
 - **Reduce subscription-instruction noise**: Subscription instructions are no longer posted as a
   separate reply toot under each announcement. They are now embedded in the event announcement
   itself, so followers no longer see an extra instruction post per event in their timeline. The

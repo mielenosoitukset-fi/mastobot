@@ -113,5 +113,63 @@ class MastoBotTestCase(unittest.TestCase):
         mock_append.assert_called_once()
 
 
+class StateWriteFailureTestCase(unittest.TestCase):
+    """Incident 2026-11-23: a failed posted_events insert made the bot repost one event 438 times."""
+
+    def setUp(self):
+        bot._posting_paused_reason = None
+
+    def tearDown(self):
+        bot._posting_paused_reason = None
+
+    def _event(self):
+        return {
+            "_id": "demo-dup",
+            "slug": "demo-dup",
+            "title": "Testimielenosoitus",
+            "date": (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d"),
+            "start_time": "12:00",
+            "city": "Helsinki",
+            "tags": [],
+            "cancelled": False,
+        }
+
+    def test__process_events__does_not_repost_when_state_write_fails(self):
+        state = PostedState()
+        with patch.object(bot, "post_to_mastodon", return_value=(True, {"id": "1"})) as mock_post, \
+             patch.object(bot.mongo.posted_events, "insert_one", side_effect=Exception("Unauthorized")), \
+             patch.object(bot.time, "sleep", return_value=None):
+            with self.assertRaises(bot.StateWriteError):
+                bot.process_events([self._event()], state, client=None, dry_run=True, max_days=60)
+            bot.process_events([self._event()], state, client=None, dry_run=True, max_days=60)
+
+        mock_post.assert_called_once()
+        self.assertIn("demo-dup", state.announcements)
+
+    def test__append_posted__pauses_posting_when_state_write_fails(self):
+        with patch.object(bot.mongo.posted_events, "insert_one", side_effect=Exception("Unauthorized")):
+            with self.assertRaises(bot.StateWriteError):
+                bot.append_posted("https://mielenosoitukset.fi/demonstration/x", PostedState(), demo_id="x")
+        self.assertIsNotNone(bot.posting_paused())
+
+    def test__append_posted__does_not_pause_when_state_write_succeeds(self):
+        with patch.object(bot.mongo.posted_events, "insert_one", return_value=None):
+            bot.append_posted("https://mielenosoitukset.fi/demonstration/x", PostedState(), demo_id="x")
+        self.assertIsNone(bot.posting_paused())
+
+
+class RedactMongoUriTestCase(unittest.TestCase):
+
+    def test__redact_mongo_uri__hides_password(self):
+        from mastobot.database import redact_mongo_uri
+        redacted = redact_mongo_uri("mongodb://mastobot:s3cret@127.0.0.1:27017/db?authSource=admin")
+        self.assertNotIn("s3cret", redacted)
+        self.assertEqual(redacted, "mongodb://mastobot:***@127.0.0.1:27017/db?authSource=admin")
+
+    def test__redact_mongo_uri__leaves_uri_without_password(self):
+        from mastobot.database import redact_mongo_uri
+        self.assertEqual(redact_mongo_uri("mongodb://127.0.0.1:27017/db"), "mongodb://127.0.0.1:27017/db")
+
+
 if __name__ == "__main__":
     unittest.main()

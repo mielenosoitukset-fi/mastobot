@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from pymongo import MongoClient
@@ -8,6 +9,11 @@ from pymongo.database import Database
 
 
 logger = logging.getLogger(__name__)
+
+
+def redact_mongo_uri(uri: str) -> str:
+    """Hide the password in a MongoDB URI before it is logged."""
+    return re.sub(r"(://[^:/@]+):[^@]*@", r"\1:***@", uri)
 
 
 class DatabaseManager:
@@ -25,6 +31,6 @@ class DatabaseManager:
 
     def get_db(self) -> Database:
         if self._client is None:
-            logger.info("Connecting Mastobot to MongoDB at %s", self.mongo_uri)
+            logger.info("Connecting Mastobot to MongoDB at %s", redact_mongo_uri(self.mongo_uri))
             self._client = MongoClient(self.mongo_uri)
         return self._client[self.db_name]
