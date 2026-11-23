@@ -141,6 +141,31 @@ def posting_paused() -> Optional[str]:
     return _posting_paused_reason
 
 
+# Exit status for "the state database is unusable". The systemd unit lists it
+# in RestartPreventExitStatus, so the bot stays stopped and OnFailure= alerts.
+EXIT_STATE_DB_UNUSABLE = 2
+# Consecutive failed database checks before the bot gives up and exits.
+STATE_DB_MAX_FAILED_CHECKS = 3
+
+
+def check_state_db() -> None:
+    """Fail unless the state database can be read and written.
+
+    Runs before every posting round. It reads posted_events (what the bot
+    uses to avoid duplicates) and writes a heartbeat to mastobot_meta, so a
+    lost connection or a missing privilege stops posting before anything is
+    sent. It cannot prove the posted_events insert itself is allowed; that
+    case is caught by append_posted.
+    """
+    mongo.command("ping")
+    mongo.posted_events.find_one({}, {"_id": 1})
+    mongo.mastobot_meta.update_one(
+        {"_id": "mastobot_heartbeat"},
+        {"$set": {"checked_at": datetime.datetime.utcnow()}},
+        upsert=True,
+    )
+
+
 def append_posted(
     link: str,
     state: PostedState,
@@ -956,13 +981,35 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     logging.info("Starting mastobot: api=%s max_days=%s dry_run=%s", api_url, DEFAULT_MAX_DAYS, args.dry_run)
 
-    posted_state = load_posted_state()
+    try:
+        check_state_db()
+        posted_state = load_posted_state()
+    except Exception as e:
+        logging.critical("State database unusable at startup; mastobot will not post: %s", e)
+        return EXIT_STATE_DB_UNUSABLE
     client = build_mastodon_client(MASTODON_ACCESS_TOKEN, DEFAULT_MASTODON_BASE)
 
     session = requests.Session()
     exit_code = 0
+    failed_db_checks = 0
     try:
         while True:
+            try:
+                check_state_db()
+                failed_db_checks = 0
+            except Exception as e:
+                failed_db_checks += 1
+                logging.error(
+                    "State database check failed (%d/%d), posting nothing: %s",
+                    failed_db_checks, STATE_DB_MAX_FAILED_CHECKS, e,
+                )
+                if failed_db_checks >= STATE_DB_MAX_FAILED_CHECKS or args.once:
+                    logging.critical("State database unusable; stopping mastobot so it can alert.")
+                    exit_code = EXIT_STATE_DB_UNUSABLE
+                    break
+                logging.info("Sleeping %s seconds...", config.MO_CHECK_INTERVAL)
+                time.sleep(config.MO_CHECK_INTERVAL)
+                continue
             try:
                 events = fetch_all_events(api_url, session)
                 events_by_id = index_events_by_id(events)
@@ -984,7 +1031,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     logging.debug("Skipping mention/subscription processing (dry-run or no client)")
                     
             except StateWriteError as e:
-                logging.critical("Posting paused after a failed state write: %s", e)
+                logging.critical("A posted status could not be saved; stopping mastobot so it can alert: %s", e)
+                exit_code = EXIT_STATE_DB_UNUSABLE
+                break
             except Exception as e:
                 logging.exception("Error while fetching or processing events: %s", e)
             if args.once:

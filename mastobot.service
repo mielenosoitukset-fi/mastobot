@@ -1,5 +1,8 @@
 [Unit]
 Description=Mielenosoitukset.fi Mastodon bot
+# Exit status 2 = the state database is unusable. The bot then stays stopped
+# (no posting) and mastobot-failed.service alerts the maintainer.
+OnFailure=mastobot-failed.service
 Wants=network-online.target
 After=network-online.target
 
@@ -13,6 +16,7 @@ Environment="MASTOBOT_CONFIG=/etc/mastobot/config.yaml"
 ExecStart=/usr/bin/python3 /opt/mastobot/current/run.py
 Restart=on-failure
 RestartSec=5s
+RestartPreventExitStatus=2
 TimeoutStopSec=30s
 KillMode=mixed
 SyslogIdentifier=mastobot
