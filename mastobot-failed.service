@@ -6,7 +6,7 @@ Description=Alert the maintainer that mastobot stopped
 [Service]
 Type=oneshot
 Environment=MONITOR_UNIT=mastobot.service
-Environment=ALERT_LABEL=Mastobot stopped
+Environment="ALERT_LABEL=Mastobot stopped"
 Environment=BARK_ALERT_GROUP=mastobot
 EnvironmentFile=-/etc/mielenosoitukset-alerts.env
 ExecStart=/usr/bin/logger -p user.err -t mastobot "mastobot stopped; read its journal"
